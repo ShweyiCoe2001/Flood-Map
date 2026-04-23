@@ -1,9 +1,296 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Test</title>
+<meta charset="utf-8"/>
+<title>Flood Risk Dashboard</title>
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;600&family=Noto+Sans+Myanmar:wght@400;600&family=Montserrat:wght@400;600&display=swap" rel="stylesheet">
+
+<style>
+body{
+    margin:0;
+    font-family:'Montserrat','Noto Sans Thai','Noto Sans Myanmar',sans-serif;
+    background:linear-gradient(135deg,#b3e5fc,#e1f5fe,#ffffff);
+}
+
+/* HEADER */
+.header{
+    position: relative;
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    padding:20px 30px;
+    font-weight:600;
+    font-size:20px;
+    color:#003049;
+}
+
+.lang-select{
+    position:absolute;
+    right:30px;
+    width:70px;
+    font-size:12px;
+    padding:2px 6px;
+    height:26px;
+    border-radius:6px;
+    border:1px solid #90caf9;
+    cursor:pointer;
+}
+
+/* LAYOUT */
+.container{
+    display:flex;
+    padding:0 30px 30px 30px;
+    gap:25px;
+}
+
+.sidebar{
+    width:25%;
+    background:rgba(255,255,255,0.6);
+    backdrop-filter:blur(12px);
+    border-radius:20px;
+    padding:20px;
+}
+
+#map{
+    width:75%;
+    height:78vh;
+    border-radius:20px;
+}
+
+.summary{
+    margin-top:15px;
+    font-size:14px;
+}
+
+.badge{
+    display:inline-block;
+    padding:6px 10px;
+    border-radius:20px;
+    font-size:12px;
+    font-weight:600;
+    margin:4px 4px 0 0;
+}
+
+.high{background:#ffccd5;color:#b00020;}
+.medium{background:#ffe0b2;color:#e65100;}
+.low{background:#b2dfdb;color:#00695c;}
+
+select{
+    width:100%;
+    padding:6px;
+    border-radius:8px;
+}
+
+input[type="checkbox"]{
+    accent-color:#0288d1;
+}
+
+/* WATER LEGEND */
+#waterLegend{
+position:absolute;
+bottom:30px;
+left:40px;
+background:white;
+padding:10px;
+border-radius:10px;
+font-size:13px;
+box-shadow:0 4px 10px rgba(0,0,0,0.2);
+z-index:999;
+}
+</style>
 </head>
+
 <body>
-  <h1>Hello Coe 🎉</h1>
+
+<div class="header">
+    <div id="title"></div>
+    <select class="lang-select" onchange="changeLanguage(this.value)">
+        <option value="en">EN</option>
+        <option value="th">TH</option>
+        <option value="mm">MM</option>
+    </select>
+</div>
+
+<div class="container">
+
+<div class="sidebar">
+<h4 id="filterTitle"></h4>
+
+<label id="severityLabel"></label><br>
+<input type="checkbox" value="High" checked> <span id="highText"></span><br>
+<input type="checkbox" value="Medium" checked> <span id="mediumText"></span><br>
+<input type="checkbox" value="Low" checked> <span id="lowText"></span><br><br>
+
+<label id="areaLabel"></label><br>
+<select id="areaSelect" multiple size="8"></select>
+
+<div class="summary" id="summary"></div>
+</div>
+
+<div id="map"></div>
+
+</div>
+
+<!-- WATER LEGEND -->
+<div id="waterLegend">
+<b>Flood Level</b><br>
+<span style="color:#2e7d32;">●</span> Foot (&lt;0.5m)<br>
+<span style="color:#fbc02d;">●</span> Knee–Waist (0.5–1.2m)<br>
+<span style="color:#d32f2f;">●</span> Over Human Height (&gt;1.2m)
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<script>
+
+// CURRENT LANGUAGE
+let currentLang = "en";
+
+// ================= DATA =================
+const locations = [
+{id:"CR01",name:{en:"Kohloi Riverside Area",th:"พื้นที่ริมแม่น้ำเกาะลอย",mm:"ကိုလိုင်းမြစ်ဘေးဒေသ"},district:{en:"Mueang Chiang Rai",th:"อำเภอเมืองเชียงราย",mm:"မြို့နယ် ချင်းရိုင်"},subdistrict:{en:"Rop Wiang",th:"รอบเวียง",mm:"ရပ်ဝီယန်"},lat:19.9176,lng:99.8352,zone:"Zone1",severity:"High",water:1.8},
+{id:"CR02",name:{en:"Sriboonruang Soi 1",th:"ศรีบุญเรือง ซอย 1",mm:"စရီဘွန်ရောင် လမ်း ၁"},district:{en:"Mueang Chiang Rai",th:"อำเภอเมืองเชียงราย",mm:"မြို့နယ် ချင်းရိုင်"},subdistrict:{en:"Rop Wiang",th:"รอบเวียง",mm:"ရပ်ဝီယန်"},lat:19.91038,lng:99.83539,zone:"Zone1",severity:"High",water:1.6},
+{id:"CR03",name:{en:"Sraiboon-Ruang Community",th:"ชุมชนสรายบุญเรือง",mm:"စရိုင်ဘွန်ရောင် အသိုင်းအဝိုင်း"},district:{en:"Mueang Chiang Rai",th:"อำเภอเมืองเชียงราย",mm:"မြို့နယ် ချင်းရိုင်"},subdistrict:{en:"Rop Wiang",th:"รอบเวียง",mm:"ရပ်ဝီယန်"},lat:19.91011,lng:99.8352,zone:"Zone1",severity:"High",water:1.7},
+{id:"CR04",name:{en:"Pao Khun Road Riverside",th:"ริมถนนเป้าขุน",mm:"ပေါ့ခွန်လမ်း မြစ်ဘေး"},district:{en:"Mueang Chiang Rai",th:"อำเภอเมืองเชียงราย",mm:"မြို့နယ် ချင်းရိုင်"},subdistrict:{en:"Rop Wiang",th:"รอบเวียง",mm:"ရပ်ဝီယန်"},lat:19.90935,lng:99.8375,zone:"Zone2",severity:"Medium",water:1.0},
+{id:"CR05",name:{en:"Robkao Riverside",th:"ริมแม่น้ำรอบเก้า",mm:"ရော့ဘ်ကော မြစ်ဘေး"},district:{en:"Mueang Chiang Rai",th:"อำเภอเมืองเชียงราย",mm:"မြို့နယ် ချင်းရိုင်"},subdistrict:{en:"Rop Wiang",th:"รอบเวียง",mm:"ရပ်ဝီယန်"},lat:19.9122,lng:99.8456,zone:"Zone2",severity:"Medium",water:0.9},
+{id:"CR06",name:{en:"Kaothong Road Area",th:"ถนนเกาะทอง",mm:"ကောထောင်လမ်း"},district:{en:"Mueang Chiang Rai",th:"อำเภอเมืองเชียงราย",mm:"မြို့နယ် ချင်းရိုင်"},subdistrict:{en:"Rop Wiang",th:"รอบเวียง",mm:"ရပ်ဝီယန်"},lat:19.91245,lng:99.84575,zone:"Zone3",severity:"Low",water:0.3},
+{id:"CR07",name:{en:"Koktong Soi 2",th:"กกทอง ซอย 2",mm:"ကောက်ထောင် လမ်း ၂"},district:{en:"Mueang Chiang Rai",th:"อำเภอเมืองเชียงราย",mm:"မြို့နယ် ချင်းရိုင်"},subdistrict:{en:"Rop Wiang",th:"รอบเวียง",mm:"ရပ်ဝီယန်"},lat:19.91251,lng:99.8431,zone:"Zone2",severity:"Medium",water:1.1},
+{id:"CR08",name:{en:"Near M Power Hotel Area",th:"ใกล้โรงแรมเอ็มพาวเวอร์",mm:"M Power ဟိုတယ်အနီး"},district:{en:"Mueang Chiang Rai",th:"อำเภอเมืองเชียงราย",mm:"မြို့နယ် ချင်းရိုင်"},subdistrict:{en:"Rop Wiang",th:"รอบเวียง",mm:"ရပ်ဝီယန်"},lat:19.91275,lng:99.8339,zone:"Zone1",severity:"High",water:1.9},
+{id:"CR09",name:{en:"209 Kok Tong Road",th:"209 ถนนกกทอง",mm:"၂၀၉ ကောက်ထောင်လမ်း"},district:{en:"Mueang Chiang Rai",th:"อำเภอเมืองเชียงราย",mm:"မြို့နယ် ချင်းရိုင်"},subdistrict:{en:"Rop Wiang",th:"รอบเวียง",mm:"ရပ်ဝီယန်"},lat:19.91255,lng:99.8432,zone:"Zone2",severity:"Medium",water:0.8},
+{id:"CR10",name:{en:"Baan Mai Area",th:"บ้านใหม่",mm:"ဘန်မိုင်"},district:{en:"Mueang Chiang Rai",th:"อำเภอเมืองเชียงราย",mm:"မြို့နယ် ချင်းရိုင်"},subdistrict:{en:"Rop Wiang",th:"รอบเวียง",mm:"ရပ်ဝီယန်"},lat:19.9246513,lng:99.8389663,zone:"Zone1",severity:"High",water:1.7},
+{id:"CR11",name:{en:"Riverside Kok Community",th:"ชุมชนริมแม่น้ำกก",mm:"ကောက်မြစ်ဘေး အသိုင်းအဝိုင်း"},district:{en:"Mueang Chiang Rai",th:"อำเภอเมืองเชียงราย",mm:"မြို့နယ် ချင်းရိုင်"},subdistrict:{en:"Rop Wiang",th:"รอบเวียง",mm:"ရပ်ဝီယန်"},lat:19.9116,lng:99.8341,zone:"Zone1",severity:"High",water:2.0}
+];
+
+// ================= TRANSLATION =================
+const translations = {
+en:{title:"🌊 Flood Risk Monitoring – Burmese Migrant Communities – Chiang Rai",filter:"Filter Controls",severity:"Flood Severity",high:"High",medium:"Medium",low:"Low",area:"Select Area",total:"Total Locations",district:"District",subdistrict:"Sub-district"},
+th:{title:"🌊 การติดตามความเสี่ยงน้ำท่วม – ชุมชนแรงงานเมียนมา – เชียงราย",filter:"ตัวกรองข้อมูล",severity:"ระดับความรุนแรงของน้ำท่วม",high:"สูง",medium:"ปานกลาง",low:"ต่ำ",area:"เลือกพื้นที่",total:"จำนวนพื้นที่ทั้งหมด",district:"อำเภอ",subdistrict:"ตำบล"},
+mm:{title:"🌊 ရေလွှမ်းမိုးမှုအန္တရာယ် စောင့်ကြည့်မှု – မြန်မာရွှေ့ပြောင်းလုပ်သား အသိုင်းအဝိုင်း – ချင်းရိုင်",filter:"စစ်ထုတ်ရန်",severity:"ရေလွှမ်းမိုးမှုအဆင့်",high:"မြင့်",medium:"အလတ်",low:"နိမ့်",area:"ဧရိယာရွေးချယ်ရန်",total:"စုစုပေါင်းနေရာများ",district:"မြို့နယ်",subdistrict:"ရပ်ကွက်"}
+};
+
+// ================= MAP =================
+const map = L.map('map').setView([19.915, 99.838], 14);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+
+let markers=[];
+const areaSelect=document.getElementById("areaSelect");
+
+// populate dropdown
+locations.forEach(loc=>{
+const opt=document.createElement("option");
+opt.value=loc.id;
+opt.text=loc.name[currentLang];
+areaSelect.appendChild(opt);
+});
+
+// water color
+function getWaterColor(level){
+if(level < 0.5) return "#2e7d32";
+if(level < 1.2) return "#fbc02d";
+return "#d32f2f";
+}
+
+// ================= UPDATE =================
+function updateMap(){
+
+markers.forEach(m=>map.removeLayer(m));
+markers=[];
+
+const selectedSeverity=[...document.querySelectorAll("input[type=checkbox]:checked")].map(c=>c.value);
+const selectedAreas=[...areaSelect.selectedOptions].map(o=>o.value);
+
+let filtered=locations.filter(l=>selectedSeverity.includes(l.severity));
+if(selectedAreas.length>0){
+filtered=filtered.filter(l=>selectedAreas.includes(l.id));
+}
+
+let high=0,medium=0,low=0;
+
+filtered.forEach(loc=>{
+
+if(loc.severity==="High") high++;
+if(loc.severity==="Medium") medium++;
+if(loc.severity==="Low") low++;
+
+// flood spread
+if(loc.water){
+L.circle([loc.lat,loc.lng],{
+radius:loc.water*120,
+color:getWaterColor(loc.water),
+fillOpacity:0.15
+}).addTo(map);
+}
+
+// marker
+let color=getWaterColor(loc.water);
+
+const marker=L.circleMarker([loc.lat,loc.lng],{
+radius:10,
+fillColor:color,
+color:"#fff",
+weight:2,
+fillOpacity:0.9
+}).addTo(map);
+
+marker.bindPopup(
+`<b>${loc.name[currentLang]}</b><br>
+${translations[currentLang].district}: ${loc.district[currentLang]}<br>
+${translations[currentLang].subdistrict}: ${loc.subdistrict[currentLang]}<br>
+Zone: ${loc.zone}<br>
+${translations[currentLang].severity}: ${translations[currentLang][loc.severity.toLowerCase()]}<br>
+🌊 Water Level: ${loc.water} m`
+);
+
+markers.push(marker);
+
+});
+
+// auto fit
+if(filtered.length>0){
+const group=new L.featureGroup(markers);
+map.fitBounds(group.getBounds().pad(0.2));
+}
+
+document.getElementById("summary").innerHTML=
+`<span class="badge high">${translations[currentLang].high}: ${high}</span>
+<span class="badge medium">${translations[currentLang].medium}: ${medium}</span>
+<span class="badge low">${translations[currentLang].low}: ${low}</span>
+<hr>${translations[currentLang].total}: ${filtered.length}`;
+}
+
+// ================= LANGUAGE =================
+function changeLanguage(lang){
+currentLang=lang;
+
+document.getElementById("title").innerText=translations[lang].title;
+document.getElementById("filterTitle").innerText=translations[lang].filter;
+document.getElementById("severityLabel").innerText=translations[lang].severity;
+document.getElementById("highText").innerText=translations[lang].high;
+document.getElementById("mediumText").innerText=translations[lang].medium;
+document.getElementById("lowText").innerText=translations[lang].low;
+document.getElementById("areaLabel").innerText=translations[lang].area;
+
+// update dropdown
+areaSelect.innerHTML="";
+locations.forEach(loc=>{
+const opt=document.createElement("option");
+opt.value=loc.id;
+opt.text=loc.name[lang];
+areaSelect.appendChild(opt);
+});
+
+updateMap();
+}
+
+// INIT
+changeLanguage("en");
+
+document.querySelectorAll("input[type=checkbox]").forEach(cb=>cb.addEventListener("change",updateMap));
+areaSelect.addEventListener("change",updateMap);
+
+</script>
+
 </body>
 </html>
